@@ -1,0 +1,26 @@
+# Allow *. syntax
+syntax:glob
+
+# Generated CMake stuff
+include/lwpr_config.h
+CMakeFiles
+CMakeScripts
+CMakeCache.txt
+Makefile
+*.*~
+*.cmake
+./bin
+./build
+.cproject
+.project
+.svn
+srv_gen
+msg_gen
+*.pcd
+*.ppm
+*.png
+*.jpg
+*.avi
+*.so
+*.swp
+*.py
