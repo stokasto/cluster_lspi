@@ -4,101 +4,27 @@
 #include <Eigen/Core>
 
 #include <kmeans.h>
+#include <lspi.h>
 
-struct xux {
-	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+class SoftKmeansBasis : public LSPI::Basis
+{
+	private:
+	ckm::SoftKMeans &kmeans_;
+	public:
 	
-	Eigen::VectorXd x;
-	double u;
-	double r;
-	Eigen::VectorXd xn;
+	SoftKmeansBasis(ckm::SoftKMeans &kmeans) : kmeans_(kmeans)
+	{
+	}
+	
+	virtual int getNumFeatures()
+	{
+		return kmeans_.getNumPrototypes();
+	}
+	virtual Eigen::VectorXd getFeatures(Eigen::VectorXd &xu)
+	{
+		return kmeans_.getFeature(xu);
+	}
 };
-
-
-double
-get_action(ckm::SoftKMeans &phi, Eigen::VectorXd &w, Eigen::VectorXd &x, std::vector<double> &actions)
-{
-	int x_size = x.size();
-	double best_q;
-	double best_u;
-	double tmp_q;
-	Eigen::VectorXd tmp(x_size+1);
-	Eigen::VectorXd tmp_phi(w.size());
-	for (int i = 0; i < (int) actions.size(); ++i)
-		{
-			tmp.head(x_size) = x;
-			tmp(x_size) = actions[i];
-			tmp_phi = phi.getFeature(tmp);
-			tmp_q = tmp_phi.dot(w);
-			// we minimize q << cost function instead of reward
-			if (tmp_q < best_q)
-			  {
-				  best_q = tmp_q;
-				  best_u = actions[i];
-			  }
-		}
-	return best_u;
-}
-
-Eigen::VectorXd
-lstdq(std::vector<xux> &D, int k, ckm::SoftKMeans &phi, double gamma, Eigen::VectorXd &w0, std::vector<double> &actions)
-{
-	double delta = 0.5;
-	double denominator = 1.;
-	int x_size = D[0].x.size();
-	Eigen::MatrixXd B(k, k);
-	Eigen::MatrixXd tmp_B(k, k);
-	Eigen::VectorXd tmp_Bdot;
-	Eigen::VectorXd b(k);
-	Eigen::VectorXd w(k);
-	Eigen::VectorXd tmp_xu(x_size + 1);
-	Eigen::VectorXd tmpphi_x(k);
-	Eigen::VectorXd tmpphi_xn(k);
-	
-	// init to some multiple of the identity matrix
-	for(int i = 0; i < k; ++i)
-	  B(i,i) = 1./delta;
-	
-	for (int i = 0; i < (int) D.size(); ++i)
-	  {
-		  tmp_xu.head(x_size) = D[i].x;
-		  tmp_xu(x_size) = D[i].u;
-		  tmpphi_x = phi.getFeature(tmp_xu);
-		  
-		  tmp_xu.head(x_size) = D[i].x;
-		  tmp_xu(x_size) = get_action(phi, w0, D[i].x, actions);
-		  tmpphi_xn = phi.getFeature(tmp_xu);
-		  
-		  tmp_Bdot = ((tmpphi_x - gamma * tmpphi_xn).transpose() * B);
-		  // calculate enumerator
-		  tmp_B = B * tmp_Bdot;
-		  // calculate denominator
-		  denominator = 1 + tmp_Bdot.dot(tmpphi_x);
-		  tmp_B /= denominator;
-		  
-		  B -= tmp_B;
-		  
-		  b += tmpphi_x * D[i].r;
-      }
-    w = B*b;
-    return w;
-}
-
-Eigen::VectorXd
-lspi(std::vector<xux> &D, int k, ckm::SoftKMeans &phi, double gamma, double epsilon, Eigen::VectorXd &w0, std::vector<double> &actions)
-{
-	Eigen::VectorXd wprime = w0;
-	Eigen::VectorXd w(k);
-	int count = 0;
-	do 
-	  {
-		  w = wprime;
-		  wprime = lstdq(D, k, phi, gamma, w, actions);
-		  printf("lspi iteration: %d\n", count);
-		  ++count;
-	  } while ( (w-wprime).norm() < epsilon);
-	return w;
-}
 
 int 
 main(int args, char * argv[])
@@ -117,7 +43,7 @@ main(int args, char * argv[])
   int data_size;
   float xu[input_dim];
   float xrt[6];
-  std::vector<xux> data;
+  std::vector<LSPI::xux> data;
   Eigen::VectorXd tmp(input_dim);
   
   if (f == NULL)
@@ -137,7 +63,7 @@ main(int args, char * argv[])
   while(fscanf(f, "%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f\n", xu, xu+1, xu+2, xu+3, xu+4, 
         xrt, xrt+1, xrt+2, xrt+3, xrt+4, xrt+5) == 11)
     {
-	  struct xux next;
+	  struct LSPI::xux next;
       for (int i = 0; i < x_size; ++i)
         {
 		  next.x.resize(x_size);
@@ -164,19 +90,21 @@ main(int args, char * argv[])
   fclose(kmf);
   
   // configure lspi
+  SoftKmeansBasis basis(*kmeans);
   std::vector<double> actions;
   actions.push_back(-10.);
   actions.push_back(10.);
-  Eigen::VectorXd w0(kmeans->getNumPrototypes());
+  assert(kmeans->getNumPrototypes() == 40);
+  Eigen::Matrix<double, 40, 1> w0;
   // chose initial policy to be random
   srand48(time(0));
   for (int i = 0; i < w0.size(); ++i)
     w0(i) = drand48();
   // start lspi
-  Eigen::VectorXd w = lspi(data, kmeans->getNumPrototypes(), *kmeans, 0.8, 0.1, w0, actions);
+  Eigen::VectorXd w = LSPI::lspi<40>(data, basis, 0.8, 0.03, w0, actions);
   
   // and print the resulting policy vector
-  std::cout << "Resulting policy vector: " << w.transpose() << std::endl;
+  std::cout << std::endl << "Resulting policy vector: " << w.transpose() << std::endl;
   
   delete kmeans;
   return 0;

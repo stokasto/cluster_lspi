@@ -48,7 +48,7 @@ main(int args, char * argv[])
   fclose(f);
   
   // allocate kmeans instance
-  kmeans = new ckm::SoftKMeans(num_prototypes, data_size);
+  kmeans = new ckm::SoftKMeans(num_prototypes, input_dim);
   // train the kmeans
   kmeans->fit(data, 300);
   
